@@ -28,7 +28,7 @@ except ImportError:
   pass
 
 setup(name='clever',
-      version=version.VERSION,
+      version=str(version.VERSION),
       description='Clever Python bindings',
       author='Clever',
       author_email='support@clever.com',
