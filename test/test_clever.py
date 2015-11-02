@@ -53,7 +53,7 @@ def functional_test(auth):
 
     def test_unicode(self):
       # Make sure unicode requests can be sent
-      self.assertRaises(clever.APIError, clever.District.retrieve, id=u'☃')
+      self.assertRaises(clever.APIError, clever.District.retrieve, id='☃')
 
     def test_none_values(self):
       district = clever.District.all(sort=None)[0]
@@ -122,7 +122,7 @@ class FunctionalTests(CleverTestCase):
 
   def test_unicode(self):
     # Make sure unicode requests can be sent
-    self.assertRaises(clever.APIError, clever.District.retrieve, id=u'☃')
+    self.assertRaises(clever.APIError, clever.District.retrieve, id='☃')
 
   def test_none_values(self):
     district = clever.District.all(sort=None)[0]
@@ -134,8 +134,8 @@ class FunctionalTests(CleverTestCase):
 
   def test_keys_and_values_methods(self):
     clever_object = clever.CleverObject()
-    self.assertEqual(clever_object.keys(), set())
-    self.assertEqual(clever_object.values(), set())
+    self.assertEqual(list(clever_object.keys()), [])
+    self.assertEqual(list(clever_object.values()), [])
 
 class AuthenticationErrorTest(CleverTestCase):
 
@@ -144,9 +144,8 @@ class AuthenticationErrorTest(CleverTestCase):
     try:
       clever.set_api_key('invalid')
       clever.District.all()
-    except clever.AuthenticationError, e:
+    except clever.AuthenticationError as e:
       self.assertEqual(401, e.http_status)
-      self.assertTrue(isinstance(e.http_body, str))
       self.assertTrue(isinstance(e.json_body, dict))
     finally:
       clever.set_api_key(key)
@@ -157,10 +156,9 @@ class InvalidRequestErrorTest(CleverTestCase):
   def test_nonexistent_object(self):
     try:
       clever.District.retrieve('invalid')
-    except clever.APIError, e:
+    except clever.APIError as e:
       self.assertEqual(404, e.http_status)
       self.assertFalse(isinstance(e.json_body, dict))  # 404 does not have a body
-      self.assertTrue(isinstance(e.http_body, str))
 
 #generates httmock responses for TooManyRequestsErrorTest
 def too_many_requests_content(url, request):

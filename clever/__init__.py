@@ -8,7 +8,7 @@ import logging
 import os
 import platform
 import sys
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import textwrap
 import time
 import datetime
@@ -18,9 +18,9 @@ import pkg_resources
 
 # Use cStringIO if ita's available.  Otherwise, StringIO is fine.
 try:
-  import cStringIO as StringIO
+  import io as StringIO
 except ImportError:
-  import StringIO
+  import io
 
 # - Requests is the preferred HTTP library
 # - Google App Engine has urlfetch
@@ -50,8 +50,8 @@ if not _httplib:
     pass
   else:
     if major == 0 and (minor < 8 or (minor == 8 and patch < 8)):
-      print >>sys.stderr, 'Warning: the Clever library requires that your Python "requests" library has a version no older than 0.8.8, but your "requests" library has version %s. Clever will fall back to an alternate HTTP library, so everything should work, though we recommend upgrading your "requests" library. If you have any questions, please contact support@clever.com. (HINT: running "pip install -U requests" should upgrade your requests library to the latest version.)' % (
-          version, )
+      print('Warning: the Clever library requires that your Python "requests" library has a version no older than 0.8.8, but your "requests" library has version %s. Clever will fall back to an alternate HTTP library, so everything should work, though we recommend upgrading your "requests" library. If you have any questions, please contact support@clever.com. (HINT: running "pip install -U requests" should upgrade your requests library to the latest version.)' % (
+          version, ), file=sys.stderr)
       _httplib = None
 
 if not _httplib:
@@ -63,9 +63,9 @@ if not _httplib:
 
 if not _httplib:
   try:
-    import urllib2
+    import urllib.request, urllib.error, urllib.parse
     _httplib = 'urllib2'
-    print >>sys.stderr, "Warning: the Clever library is falling back to urllib2 because pycurl isn't installed. urllib2's SSL implementation doesn't verify server certificates. For improved security, we suggest installing pycurl."
+    print("Warning: the Clever library is falling back to urllib2 because pycurl isn't installed. urllib2's SSL implementation doesn't verify server certificates. For improved security, we suggest installing pycurl.", file=sys.stderr)
   except ImportError:
     pass
 
@@ -73,8 +73,8 @@ if not _httplib:
   raise ImportError(
       "Clever requires one of pycurl, Google App Engine's urlfetch, or urllib2.  If you are on a platform where none of these libraries are available, please let us know at support@clever.com.")
 
-from version import VERSION
-import importer
+from .version import VERSION
+from . import importer
 json = importer.import_json()
 
 logger = logging.getLogger('clever')
@@ -150,7 +150,7 @@ def convert_to_clever_object(klass, resp, auth):
       return [convert_to_clever_object(klass, i, auth) for i in resp['data']]
     elif isinstance(resp['data'], dict):
       return klass.construct_from(resp['data'].copy(), auth)
-  elif isinstance(resp, basestring) or isinstance(resp, list) or isinstance(resp, dict) or isinstance(resp, bool):
+  elif isinstance(resp, str) or isinstance(resp, list) or isinstance(resp, dict) or isinstance(resp, bool):
     return resp
   else:
     raise Exception('DONT KNOW WHAT TO DO WITH {0}'.format(resp))
@@ -181,7 +181,7 @@ class APIRequestor(object):
 
   @classmethod
   def _utf8(cls, value):
-    if isinstance(value, unicode):
+    if isinstance(value, str):
       return value.encode('utf-8')
     else:
       return value
@@ -192,7 +192,7 @@ class APIRequestor(object):
       return d.id
     elif isinstance(d, dict):
       res = {}
-      for k, v in d.iteritems():
+      for k, v in d.items():
         res[k] = cls._objects_to_ids(v)
       return res
     else:
@@ -204,7 +204,7 @@ class APIRequestor(object):
     Internal: encode a dict for url representation
     If we ever need fancy encoding of embedded objects do it here
     """
-    return urllib.urlencode(d)
+    return urllib.parse.urlencode(d)
 
   @classmethod
   def jsonencode(cls, d):
@@ -251,7 +251,7 @@ class APIRequestor(object):
     self._objects_to_ids(params)
 
     ua = {
-        'bindings_version': VERSION,
+        'bindings_version': str(VERSION),
         'lang': 'python',
         'publisher': 'clever'
     }
@@ -260,16 +260,17 @@ class APIRequestor(object):
                        ['uname', lambda: ' '.join(platform.uname())]]:
       try:
         val = func()
-      except Exception, e:
+      except Exception as e:
         val = "!! %s" % e
       ua[attr] = val
 
     headers = {
         'X-Clever-Client-User-Agent': json.dumps(ua),
-        'User-Agent': 'Clever/v1.1 PythonBindings/%s' % (VERSION, )
+        'User-Agent': 'Clever/v1.1 PythonBindings/%s' % (str(VERSION), )
     }
     if my_auth.get('api_key', None) != None:
-      headers['Authorization'] = 'Basic {}'.format(base64.b64encode(my_auth['api_key'] + ':'))
+      auth_key = base64.b64encode((my_auth['api_key'] + ':').encode('utf-8')).decode('utf-8')
+      headers['Authorization'] = 'Basic {}'.format(auth_key)
     elif my_auth.get('token', None) != None:
       headers['Authorization'] = 'Bearer {}'.format(my_auth['token'])
     make_request = {
@@ -290,7 +291,7 @@ class APIRequestor(object):
   def interpret_response(self, http_res):
     rbody, rcode= http_res['body'], http_res['code']
     try:
-      resp = json.loads(rbody) if rcode != 429 else {'error': 'Too Many Requests'}
+      resp = json.loads(rbody.decode('utf-8')) if rcode != 429 else {'error': 'Too Many Requests'}
     except Exception:
       raise APIError("Invalid response body from API: %s (HTTP response code was %d)" %
                      (rbody, rcode), rbody, rcode)
@@ -324,7 +325,7 @@ class APIRequestor(object):
         result = requests.request(meth, abs_url,
                                   headers=headers, data=data, timeout=80,
                                   verify=CLEVER_CERTS)
-      except TypeError, e:
+      except TypeError as e:
         raise TypeError(
             'Warning: It looks like your installed version of the "requests" library is not compatible with Clever\'s usage thereof. (HINT: The most likely cause is that your "requests" library is out of date. You can fix that by running "pip install -U requests".) The underlying error was: %s' % (e, ))
 
@@ -334,7 +335,7 @@ class APIRequestor(object):
       content = result.content
       status_code = result.status_code
       headers = result.headers
-    except Exception, e:
+    except Exception as e:
       # Would catch just requests.exceptions.RequestException, but can
       # also raise ValueError, RuntimeError, etc.
       self.handle_requests_error(e)
@@ -343,7 +344,7 @@ class APIRequestor(object):
   def handle_requests_error(self, e):
     if isinstance(e, requests.exceptions.RequestException):
       msg = "Unexpected error communicating with Clever.  If this problem persists, let us know at support@clever.com."
-      err = "%s: %s" % (type(e).__name__, e.message)
+      err = "%s" % (type(e).__name__, )
     else:
       msg = "Unexpected error communicating with Clever.  It looks like there's probably a configuration issue locally.  If this problem persists, let us know at support@clever.com."
       err = "A %s was raised" % (type(e).__name__, )
@@ -355,8 +356,8 @@ class APIRequestor(object):
     raise APIConnectionError(msg)
 
   def pycurl_request(self, meth, abs_url, headers, params):
-    s = StringIO.StringIO()
-    rheader = StringIO.StringIO()
+    s = io.StringIO()
+    rheader = io.StringIO()
     curl = pycurl.Curl()
 
     meth = meth.lower()
@@ -384,7 +385,7 @@ class APIRequestor(object):
     curl.setopt(pycurl.NOSIGNAL, 1)
     curl.setopt(pycurl.CONNECTTIMEOUT, 30)
     curl.setopt(pycurl.TIMEOUT, 80)
-    curl.setopt(pycurl.HTTPHEADER, ['%s: %s' % (k, v) for k, v in headers.iteritems()])
+    curl.setopt(pycurl.HTTPHEADER, ['%s: %s' % (k, v) for k, v in headers.items()])
     curl.setopt(pycurl.HEADERFUNCTION, rheader.write)
     if verify_ssl_certs:
       curl.setopt(pycurl.CAINFO, CLEVER_CERTS)
@@ -393,7 +394,7 @@ class APIRequestor(object):
 
     try:
       curl.perform()
-    except pycurl.error, e:
+    except pycurl.error as e:
       self.handle_pycurl_error(e)
     return {'body': s.getvalue(), 'headers': rheader.getvalue(), 'code': curl.getinfo(pycurl.RESPONSE_CODE)}
 
@@ -437,7 +438,7 @@ class APIRequestor(object):
 
     try:
       result = urlfetch.fetch(**args)
-    except urlfetch.Error, e:
+    except urlfetch.Error as e:
       self.handle_urlfetch_error(e, abs_url)
     return {'body': result.content, 'headers': result.headers, 'code': result.status_code}
 
@@ -458,15 +459,15 @@ class APIRequestor(object):
     args = {}
     if meth == 'get':
       abs_url = '%s?%s' % (abs_url, self.urlencode(params))
-      req = urllib2.Request(abs_url, None, headers)
+      req = urllib.request.Request(abs_url, None, headers)
     elif meth in ['post', 'patch']:
       body = self.jsonencode(params)
       headers['Content-Type'] = 'application/json'
-      req = urllib2.Request(abs_url, body, headers)
+      req = urllib.request.Request(abs_url, body, headers)
       if meth == 'patch':
         req.get_method = lambda: 'PATCH'
     elif meth == 'delete':
-      req = urllib2.Request(abs_url, None, headers)
+      req = urllib.request.Request(abs_url, None, headers)
       req.get_method = lambda: 'DELETE'
       if params:
         raise APIConnectionError("Did not expect params in DELETE request")
@@ -475,15 +476,15 @@ class APIRequestor(object):
           'Unrecognized HTTP method %r.  This may indicate a bug in the Clever bindings.  Please contact support@clever.com for assistance.' % (meth, ))
 
     try:
-      response = urllib2.urlopen(req)
+      response = urllib.request.urlopen(req)
       rbody = response.read()
       rheader = response.info()
       rcode = response.code
-    except urllib2.HTTPError, e:
+    except urllib.error.HTTPError as e:
       rcode = e.code
       rheader = None
       rbody = e.read()
-    except (urllib2.URLError, ValueError), e:
+    except (urllib.error.URLError, ValueError) as e:
       self.handle_urllib2_error(e, abs_url)
     return {'body': rbody, 'headers': rheader, 'code': rcode}
 
@@ -606,7 +607,7 @@ class CleverObject(object):
       self._transient_values.add(k)
       self._unsaved_values.discard(k)
 
-    for k, v in values.iteritems():
+    for k, v in values.items():
       if k in self._permanent_attributes:
         continue
       self.__dict__[k] = convert_to_clever_object(self, v, auth)
@@ -616,7 +617,7 @@ class CleverObject(object):
 
   def __repr__(self):
     id_string = ''
-    if isinstance(self.get('id'), basestring):
+    if isinstance(self.get('id'), str):
       id_string = ' id=%s' % self.get('id').encode('utf8')
 
     return '<%s%s at %s> JSON: %s' % (type(self).__name__, id_string, hex(id(self)), json.dumps(self.to_dict(), sort_keys=True, indent=2, cls=CleverObjectEncoder))
@@ -674,7 +675,7 @@ class APIResource(CleverObject):
     if cls == APIResource:
       raise NotImplementedError(
           'APIResource is an abstract class.  You should perform actions on its subclasses (Charge, Customer, etc.)')
-    return "%s" % urllib.quote_plus(cls.__name__.lower())
+    return "%s" % urllib.parse.quote_plus(cls.__name__.lower())
 
   @classmethod
   def class_url(cls):
@@ -688,7 +689,7 @@ class APIResource(CleverObject):
           'Could not determine which URL to request: %s instance has invalid ID: %r' % (type(self).__name__, id), 'id')
     id = APIRequestor._utf8(id)
     base = self.class_url()
-    extn = urllib.quote_plus(id)
+    extn = urllib.parse.quote_plus(id)
     return "%s/%s" % (base, extn)
 
 # Classes of API operations
